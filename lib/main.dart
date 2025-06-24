@@ -3,22 +3,19 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:glassmorphism/glassmorphism.dart'; // Import the glassmorphism library
+import 'package:glassmorphism/glassmorphism.dart';
 
 import 'models/project.dart';
 import 'screens/project_create_screen.dart';
 import 'screens/project_view_screen.dart';
-import 'services/subscription_service.dart';
 
-// Define your color palette
-const Color primaryColor = Color(0xFF1E272E); // Dark charcoal
-const Color secondaryColor = Color(0xFF2D3436); // Slightly lighter charcoal
-const Color accentColor = Color(0xFF808e9b);   // Grayish-blue
-const Color textColor = Colors.white70;         // Slightly transparent white
+const Color primaryColor = Color(0xFF1E272E);
+const Color secondaryColor = Color(0xFF2D3436);
+const Color accentColor = Color(0xFF808e9b);
+const Color textColor = Colors.white70;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SubscriptionService.instance.init(); // Initialize subscription on startup
   runApp(const MyApp());
 }
 
@@ -32,13 +29,12 @@ class MyApp extends StatelessWidget {
       home: const HomeDecider(),
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // Add custom theme for glassmorphism
         scaffoldBackgroundColor: primaryColor,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),
-        fontFamily: 'Roboto', // A modern, clean font
+        fontFamily: 'Roboto',
       ),
     );
   }
@@ -96,7 +92,6 @@ class _HomeDeciderState extends State<HomeDecider> with TickerProviderStateMixin
   }
 
   Future<void> _loadProject() async {
-    // Add a small delay to show the beautiful loading animation
     await Future.delayed(const Duration(milliseconds: 800));
 
     final dir = await getApplicationDocumentsDirectory();
@@ -126,7 +121,7 @@ class _HomeDeciderState extends State<HomeDecider> with TickerProviderStateMixin
             scale: _scaleAnimation,
             child: FadeTransition(
               opacity: _fadeAnimation,
-              child: GlassmorphicContainer(  // Use GlassmorphicContainer here
+              child: GlassmorphicContainer(
                 width: MediaQuery.of(context).size.width * 0.8,
                 height: MediaQuery.of(context).size.height * 0.4,
                 borderRadius: 20,
@@ -350,8 +345,7 @@ class _HomeDeciderState extends State<HomeDecider> with TickerProviderStateMixin
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // App Logo/Icon with glassmorphism
-                      GlassmorphicContainer(   // Use GlassmorphicContainer here
+                      GlassmorphicContainer(
                         width: 128,
                         height: 128,
                         borderRadius: 32,
@@ -387,8 +381,6 @@ class _HomeDeciderState extends State<HomeDecider> with TickerProviderStateMixin
                         ),
                       ),
                       const SizedBox(height: 32),
-
-                      // App Name
                       Text(
                         'Karbon',
                         style: TextStyle(
@@ -399,8 +391,6 @@ class _HomeDeciderState extends State<HomeDecider> with TickerProviderStateMixin
                         ),
                       ),
                       const SizedBox(height: 8),
-
-                      // Subtitle
                       Text(
                         'Code Generator',
                         style: TextStyle(
@@ -411,9 +401,7 @@ class _HomeDeciderState extends State<HomeDecider> with TickerProviderStateMixin
                         ),
                       ),
                       const SizedBox(height: 48),
-
-                      // Loading indicator with glassmorphism
-                      GlassmorphicContainer(   // Use GlassmorphicContainer here
+                      GlassmorphicContainer(
                         width: 200,
                         height: 120,
                         borderRadius: 16,
@@ -493,7 +481,7 @@ class _GlassButton extends StatelessWidget {
     final buttonColor = isPrimary ? Colors.white.withOpacity(0.25) : secondaryColor.withOpacity(0.15);
     final borderColor = isPrimary ? Colors.white.withOpacity(0.3) : accentColor.withOpacity(0.2);
 
-    return GlassmorphicContainer(  // Use GlassmorphicContainer here
+    return GlassmorphicContainer(
       width: double.infinity,
       height: 50,
       borderRadius: 16,

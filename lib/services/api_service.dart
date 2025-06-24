@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'subscription_service.dart';
 
 class ApiService {
   static const String baseUrl = 'https://agentic-ai-wine.vercel.app';
@@ -10,7 +9,6 @@ class ApiService {
   static const _lastResetKey = 'api_request_last_reset';
 
   static Future<bool> _canMakeRequest() async {
-    if (SubscriptionService.instance.isSubscribed) return true;
 
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now();
