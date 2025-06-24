@@ -1,7 +1,10 @@
+import 'dart:io';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:glassmorphism/glassmorphism.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../models/project.dart';
 import '../services/api_service.dart';
 
@@ -18,12 +21,21 @@ class ProjectCreateScreen extends StatefulWidget {
   State<ProjectCreateScreen> createState() => _ProjectCreateScreenState();
 }
 
-class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTickerProviderStateMixin {
+class _ProjectCreateScreenState extends State<ProjectCreateScreen>
+    with SingleTickerProviderStateMixin {
   final nameController = TextEditingController();
   final descriptionController = TextEditingController();
   bool isLoading = false;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+
+  // AdMob variables
+  RewardedAd? _rewardedAd;
+  bool _isAdLoaded = false;
+  bool _isAdLoading = false; //Prevent multiple ad loads.
+  BannerAd? _bannerAd;
+  InterstitialAd? _interstitialAd;
+  bool _isProjectCreated = false;
 
   @override
   void initState() {
@@ -42,6 +54,159 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
     ));
 
     _animationController.forward();
+    _loadRewardedAd();
+    _loadBannerAd();
+    _loadInterstitialAd();
+  }
+
+  // Platform check for ad unit id (replace with your actual ad units)
+  String get rewardedAdUnitId {
+    if (Platform.isAndroid) {
+      return 'ca-app-pub-3940256099942544/5224354917'; // Test Ad Unit - Replace with your actual Android ID
+    } else if (Platform.isIOS) {
+      return 'ca-app-pub-3940256099942544/1712485152'; // Test Ad Unit - Replace with your actual iOS ID
+    } else {
+      return ''; // Return empty string for other platforms
+    }
+  }
+
+  String get bannerAdUnitId {
+    if (Platform.isAndroid) {
+      return 'ca-app-pub-3940256099942544/6300978111'; // Test Ad Unit - Replace with your actual Android ID
+    } else if (Platform.isIOS) {
+      return 'ca-app-pub-3940256099942544/2934735716'; // Test Ad Unit - Replace with your actual iOS ID
+    } else {
+      return ''; // Return empty string for other platforms
+    }
+  }
+
+  String get interstitialAdUnitId {
+    if (Platform.isAndroid) {
+      return 'ca-app-pub-3940256099942544/1033173712'; // Test Ad Unit - Replace with your actual Android ID
+    } else if (Platform.isIOS) {
+      return 'ca-app-pub-3940256099942544/4411468910'; // Test Ad Unit - Replace with your actual iOS ID
+    } else {
+      return ''; // Return empty string for other platforms
+    }
+  }
+
+  // Load Rewarded Ad
+  void _loadRewardedAd() {
+    if (_isAdLoading) return; // Prevent multiple ad loads at the same time
+    _isAdLoading = true;
+    RewardedAd.load(
+      adUnitId: rewardedAdUnitId,
+      request: const AdRequest(),
+      rewardedAdLoadCallback: RewardedAdLoadCallback(
+        onAdLoaded: (RewardedAd ad) {
+          debugPrint('$ad loaded.');
+          setState(() {
+            _rewardedAd = ad;
+            _isAdLoaded = true;
+          });
+          _isAdLoading = false;
+          _setFullScreenContentCallback();
+        },
+        onAdFailedToLoad: (LoadAdError error) {
+          debugPrint('RewardedAd failed to load: $error');
+          setState(() {
+            _rewardedAd = null;
+            _isAdLoaded = false;
+          });
+          _isAdLoading = false;
+        },
+      ),
+    );
+  }
+
+  // Load Banner Ad
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+      adUnitId: bannerAdUnitId,
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (Ad ad) {
+          debugPrint('$ad loaded.');
+          setState(() {});
+        },
+        onAdFailedToLoad: (Ad ad, LoadAdError error) {
+          debugPrint('Ad failed to load: $error');
+          ad.dispose();
+          setState(() {
+            _bannerAd = null;
+          });
+        },
+        onAdOpened: (Ad ad) => debugPrint('$ad opened.'),
+        onAdClosed: (Ad ad) => debugPrint('$ad closed.'),
+      ),
+    );
+
+    _bannerAd!.load();
+  }
+
+  // Load Interstitial Ad
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: interstitialAdUnitId,
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (InterstitialAd ad) {
+          _interstitialAd = ad;
+          _setInterstitialFullScreenContentCallback();
+        },
+        onAdFailedToLoad: (LoadAdError error) {
+          print('InterstitialAd failed to load: $error.');
+          _interstitialAd = null;
+        },
+      ),
+    );
+  }
+
+  // Set Interstitial Ad Full Screen Content Callback
+  void _setInterstitialFullScreenContentCallback() {
+    if (_interstitialAd == null) return;
+    _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (InterstitialAd ad) =>
+          print('$ad onAdShowedFullScreenContent.'),
+      onAdDismissedFullScreenContent: (InterstitialAd ad) {
+        print('$ad onAdDismissedFullScreenContent.');
+        ad.dispose();
+        _loadInterstitialAd(); // Load a new ad after dismissal
+      },
+      onAdFailedToShowFullScreenContent: (InterstitialAd ad, AdError error) {
+        print('$ad onAdFailedToShowFullScreenContent: $error');
+        ad.dispose();
+        _loadInterstitialAd(); // Attempt to load a new ad after failure
+      },
+    );
+  }
+
+  // Set Full Screen Content Callback
+  void _setFullScreenContentCallback() {
+    if (_rewardedAd == null) return;
+    _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (RewardedAd ad) =>
+          debugPrint('$ad onAdShowedFullScreenContent.'),
+      onAdDismissedFullScreenContent: (RewardedAd ad) {
+        debugPrint('$ad onAdDismissedFullScreenContent.');
+        setState(() {
+          _rewardedAd!.dispose();
+          _rewardedAd = null;
+          _isAdLoaded = false;
+        });
+        _loadRewardedAd(); // Load a new ad after dismissal
+      },
+      onAdFailedToShowFullScreenContent: (RewardedAd ad, AdError error) {
+        debugPrint('$ad onAdFailedToShowFullScreenContent: $error');
+        setState(() {
+          _rewardedAd!.dispose();
+          _rewardedAd = null;
+          _isAdLoaded = false;
+        });
+        _loadRewardedAd(); // Attempt to load a new ad after failure
+      },
+    );
   }
 
   @override
@@ -49,10 +214,31 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
     nameController.dispose();
     descriptionController.dispose();
     _animationController.dispose();
+    _rewardedAd?.dispose(); // Dispose of the ad
+    _bannerAd?.dispose();
+    _interstitialAd?.dispose();
     super.dispose();
   }
 
-  Future<void> createProject() async {
+  // Function to display the rewarded ad and handle the reward
+  Future<void> _showRewardedAd() async {
+    if (_rewardedAd != null && _isAdLoaded) {
+      _rewardedAd!.show(
+          onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
+            debugPrint(
+                '$ad with reward $RewardItem(${reward.amount}, ${reward.type})');
+            createProjectAfterAd(); //Call the actual project creation logic here AFTER the ad is viewed
+          });
+    } else {
+      // If the ad isn't ready, show an error message or retry
+      _showErrorSnackBar(
+          'Ad is not ready yet. Please try again in a few seconds.');
+      _loadRewardedAd(); // try to reload the ad.
+      setState(() => isLoading = false); //Reset loading state.
+    }
+  }
+
+  Future<void> createProjectAfterAd() async {
     final name = nameController.text.trim();
     final description = descriptionController.text.trim();
 
@@ -77,11 +263,24 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
         return;
       }
 
-      final project = Project(name: name, description: description, htmlContent: html);
+      final project = Project(
+          name: name, description: description, htmlContent: html);
       widget.onProjectCreated(project, context);
+      setState(() {
+        _isProjectCreated = true;
+      });
+      _showInterstitialAd();
     } catch (e) {
       _showErrorSnackBar('Failed to generate project: ${e.toString()}');
       setState(() => isLoading = false);
+    }
+  }
+
+  void _showInterstitialAd() {
+    if (_interstitialAd != null) {
+      _interstitialAd!.show();
+    } else {
+      print("Interstitial ad is not ready yet.");
     }
   }
 
@@ -109,53 +308,64 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
         leading: BackButton(color: textColor),
         title: Text('Create New Project', style: TextStyle(color: textColor)),
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              primaryColor,
-              secondaryColor,
-            ],
+      body: Stack(children: [
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                primaryColor,
+                secondaryColor,
+              ],
+            ),
           ),
-        ),
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(20.0), // Reduced padding
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildHeaderSection(),
-                          const SizedBox(height: 20), // Reduced spacing
-                          _buildNameField(),
-                          const SizedBox(height: 16), // Reduced spacing
-                          _buildDescriptionField(),
-                          const SizedBox(height: 16), // Reduced spacing
-                          _buildTipsSection(),
-                          const SizedBox(height: 20), // Reduced spacing
-                          _buildGenerateButton(),
-                          const SizedBox(height: 16), // Added bottom padding
-                        ],
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0), // Reduced padding
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildHeaderSection(),
+                            const SizedBox(height: 20), // Reduced spacing
+                            _buildNameField(),
+                            const SizedBox(height: 16), // Reduced spacing
+                            _buildDescriptionField(),
+                            const SizedBox(height: 16), // Reduced spacing
+                            _buildTipsSection(),
+                            const SizedBox(height: 20), // Reduced spacing
+                            _buildGenerateButton(),
+                            const SizedBox(height: 16), // Added bottom padding
+                            if (_bannerAd != null)
+                              Align(
+                                alignment: Alignment.bottomCenter,
+                                child: SizedBox(
+                                  width: _bannerAd!.size.width.toDouble(),
+                                  height: _bannerAd!.size.height.toDouble(),
+                                  child: AdWidget(ad: _bannerAd!),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),
-      ),
+      ]),
     );
   }
 
@@ -286,7 +496,8 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
                   color: accentColor.withOpacity(0.7),
                   size: 18, // Reduced size
                 ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 10), // Reduced padding
+                contentPadding:
+                const EdgeInsets.symmetric(vertical: 10), // Reduced padding
               ),
             ),
           ),
@@ -337,7 +548,7 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), // Reduced vertical padding
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: TextField(
               controller: descriptionController,
               style: TextStyle(
@@ -393,7 +604,7 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
-              mainAxisSize: MainAxisSize.min, // Add this to prevent horizontal expansion
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   Icons.lightbulb_outline,
@@ -413,17 +624,16 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
               ],
             ),
             const SizedBox(height: 6), // Reduced spacing
-            Flexible( // Added Flexible widget to allow text to adapt to available space
+            Flexible(
               child: Text(
-                // Shortened the text to fit better
                 '• Be specific about layout and colors\n• Mention special features\n• Consider responsive design',
                 style: TextStyle(
                   fontSize: 12, // Further reduced font size
                   color: textColor.withOpacity(0.8),
                   height: 1.2, // Further reduced line height
                 ),
-                overflow: TextOverflow.ellipsis, // Add ellipsis if text overflows
-                maxLines: 3, // Limit to 3 lines
+                overflow: TextOverflow.ellipsis,
+                maxLines: 3,
               ),
             ),
           ],
@@ -514,7 +724,10 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: createProject,
+            onTap: () {
+              setState(() => isLoading = true);
+              _showRewardedAd();
+            },
             borderRadius: BorderRadius.circular(14),
             splashColor: Colors.white.withOpacity(0.1),
             highlightColor: Colors.white.withOpacity(0.05),
@@ -524,13 +737,13 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen> with SingleTi
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.code_rounded,
+                    Icons.lock,
                     color: Colors.white,
                     size: 16, // Reduced size
                   ),
                   const SizedBox(width: 8), // Reduced spacing
                   Text(
-                    'Generate HTML',
+                    'Watch Ad to Generate',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 14, // Reduced font size
