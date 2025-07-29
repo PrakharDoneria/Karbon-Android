@@ -1,14 +1,15 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:device_info_plus/device_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+
 import '../models/project.dart';
 import '../services/api_service.dart';
 
@@ -21,7 +22,7 @@ const Color textColor = Colors.white;
 class ProjectViewScreen extends StatefulWidget {
   final Project project;
 
-  const ProjectViewScreen({Key? key, required this.project}) : super(key: key);
+  const ProjectViewScreen({super.key, required this.project});
 
   @override
   State<ProjectViewScreen> createState() => _ProjectViewScreenState();
@@ -34,12 +35,10 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
   int currentTabIndex = 0;
   late AnimationController _animationController;
   late Animation<double> _pulseAnimation;
-  InAppWebViewController? webViewController;
+  late InAppWebViewController webViewController;
   final List<String> consoleLogs = [];
 
-  // AdMob variables
-  InterstitialAd? _interstitialAd;
-  bool _isStoragePermissionGranted = false;
+  static const String _vercelApiKeyPrefKey = 'vercel_api_key';
 
   @override
   void initState() {
@@ -55,132 +54,50 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
       ),
     );
     _animationController.repeat(reverse: true);
-
-    _checkAndRequestPermissions();
-    _loadInterstitialAd();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
     instructionController.dispose();
-    _interstitialAd?.dispose();
     super.dispose();
   }
 
-  String get interstitialAdUnitId {
-    if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/1033173712'; // Test Ad Unit - Replace with your actual Android ID
-    } else if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/4411468910'; // Test Ad Unit - Replace with your actual iOS ID
-    } else {
-      return '';
-    }
-  }
-
-  // Load Interstitial Ad
-  void _loadInterstitialAd() {
-    InterstitialAd.load(
-      adUnitId: interstitialAdUnitId,
-      request: const AdRequest(),
-      adLoadCallback: InterstitialAdLoadCallback(
-        onAdLoaded: (InterstitialAd ad) {
-          _interstitialAd = ad;
-          _setInterstitialFullScreenContentCallback();
-        },
-        onAdFailedToLoad: (LoadAdError error) {
-          print('InterstitialAd failed to load: $error.');
-          _interstitialAd = null;
-        },
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(isError ? Icons.error_outline : Icons.info_outline,
+                color: isError ? Colors.redAccent : accentColor, size: 18),
+            const SizedBox(width: 8),
+            Flexible(child: Text(message, overflow: TextOverflow.ellipsis)),
+          ],
+        ),
+        backgroundColor: secondaryColor.withOpacity(0.95),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+              color: isError
+                  ? Colors.redAccent.withOpacity(0.3)
+                  : accentColor.withOpacity(0.3),
+              width: 1),
+        ),
+        margin: const EdgeInsets.all(12),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
 
-  // Set Interstitial Ad Full Screen Content Callback
-  void _setInterstitialFullScreenContentCallback() {
-    if (_interstitialAd == null) return;
-    _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (InterstitialAd ad) =>
-          print('$ad onAdShowedFullScreenContent.'),
-      onAdDismissedFullScreenContent: (InterstitialAd ad) {
-        print('$ad onAdDismissedFullScreenContent.');
-        ad.dispose();
-        _loadInterstitialAd();
-      },
-      onAdFailedToShowFullScreenContent: (InterstitialAd ad, AdError error) {
-        print('$ad onAdFailedToShowFullScreenContent: $error');
-        ad.dispose();
-        _loadInterstitialAd();
-      },
-    );
-  }
+  Future<void> _showApiKeyInputDialog() async {
+    final TextEditingController apiKeyController = TextEditingController();
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    apiKeyController.text = prefs.getString(_vercelApiKeyPrefKey) ?? '';
 
-  /// ---- PERMISSION HANDLING ----
+    const String vercelApiKeyPageUrl = 'https://vercel.com/account/tokens';
 
-  Future<void> _checkAndRequestPermissions() async {
-    if (Platform.isIOS) {
-      final appStatus = await Permission.appTrackingTransparency.status;
-      if (appStatus == PermissionStatus.denied) {
-        await _showInitialPermissionModal(context);
-      } else {
-        await _checkAndRequestStoragePermission();
-      }
-    } else {
-      await _checkAndRequestStoragePermission();
-    }
-  }
-
-  // Checks and requests storage (or media) permissions as appropriate for Android/iOS/API level
-  Future<void> _checkAndRequestStoragePermission() async {
-    bool isGranted = false;
-
-    if (Platform.isAndroid) {
-      final sdkInt = await _getAndroidSdkInt();
-      if (sdkInt >= 33) {
-        // Android 13+ granular permissions
-        final images = await Permission.photos.request();
-        final video = await Permission.videos.request();
-        final audio = await Permission.audio.request();
-        isGranted = images.isGranted || video.isGranted || audio.isGranted;
-        if (!isGranted) {
-          // Optionally: you may also want to request Permission.manageExternalStorage for special use cases
-          _showSnackBar('Storage permission is required to save files.');
-        }
-      } else {
-        // Android 12 and below
-        final storageStatus = await Permission.storage.status;
-        if (!storageStatus.isGranted) {
-          final result = await Permission.storage.request();
-          isGranted = result.isGranted;
-          if (!isGranted) {
-            _showSnackBar('Storage permission is required to save files.');
-          }
-        } else {
-          isGranted = true;
-        }
-      }
-    } else {
-      // iOS: use photos permission if saving/exporting to gallery
-      final photos = await Permission.photos.request();
-      isGranted = photos.isGranted;
-      if (!isGranted) {
-        _showSnackBar('Photos permission is required to save files.');
-      }
-    }
-
-    setState(() {
-      _isStoragePermissionGranted = isGranted;
-    });
-  }
-
-  Future<int> _getAndroidSdkInt() async {
-    final deviceInfo = DeviceInfoPlugin();
-    final androidInfo = await deviceInfo.androidInfo;
-    return androidInfo.version.sdkInt;
-  }
-
-  // Custom modal for initial app permission
-  Future<void> _showInitialPermissionModal(BuildContext context) async {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -191,55 +108,89 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(color: accentColor.withOpacity(0.5), width: 1),
           ),
-          title: Wrap(
-            spacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          title: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: accentColor.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.privacy_tip, color: accentColor),
-              ),
-              const Text(
-                'Permission Required',
+              Icon(Icons.vpn_key_rounded, color: accentColor, size: 24),
+              SizedBox(width: 10),
+              Text(
+                'Vercel API Key',
                 style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
               ),
             ],
           ),
-          content: Text(
-            'This app requires permission to function correctly. Please grant the necessary permissions to continue.',
-            style: TextStyle(color: textColor.withOpacity(0.9)),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text(
+                  'Please enter your Vercel API key to deploy your project.',
+                  style: TextStyle(color: textColor.withOpacity(0.9)),
+                ),
+                SizedBox(height: 15),
+                TextField(
+                  controller: apiKeyController,
+                  obscureText: true,
+                  style: TextStyle(color: textColor),
+                  decoration: InputDecoration(
+                    hintText: 'e.g., sk_*********************',
+                    hintStyle: TextStyle(color: textColor.withOpacity(0.6)),
+                    filled: true,
+                    fillColor: primaryColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: accentColor),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: accentColor, width: 2),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 15),
+                TextButton.icon(
+                  onPressed: () async {
+                    if (await canLaunchUrl(Uri.parse(vercelApiKeyPageUrl))) {
+                      await launchUrl(Uri.parse(vercelApiKeyPageUrl),
+                          mode: LaunchMode.externalApplication);
+                    } else {
+                      _showSnackBar('Could not open Vercel API key page.',
+                          isError: true);
+                    }
+                  },
+                  icon: Icon(Icons.link, color: accentColor),
+                  label: Text(
+                    'Get Vercel API Key',
+                    style: TextStyle(color: accentColor, decoration: TextDecoration.underline),
+                  ),
+                ),
+              ],
+            ),
           ),
-          actions: [
+          actions: <Widget>[
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                  foregroundColor: textColor.withOpacity(0.7)),
-              child: const Text('Deny'),
+              child: Text('Cancel',
+                  style: TextStyle(color: textColor.withOpacity(0.7))),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _showSnackBar('Vercel deployment cancelled.', isError: true);
+              },
             ),
             ElevatedButton(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                await _checkAndRequestStoragePermission();
-              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: accentColor,
                 foregroundColor: primaryColor,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.check, size: 16),
-                  SizedBox(width: 6),
-                  Text('Allow', style: TextStyle(fontWeight: FontWeight.bold)),
-                ],
-              ),
+              child: Text('Save and Continue'),
+              onPressed: () async {
+                final String apiKey = apiKeyController.text.trim();
+                if (apiKey.isNotEmpty) {
+                  await prefs.setString(_vercelApiKeyPrefKey, apiKey);
+                  Navigator.of(context).pop();
+                  _showSnackBar('API Key saved successfully!');
+                  _deployToVercel(apiKey);
+                } else {
+                  _showSnackBar('API Key cannot be empty.', isError: true);
+                }
+              },
             ),
           ],
         );
@@ -247,35 +198,193 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
     );
   }
 
-  /// ---- END PERMISSION HANDLING ----
+  Future<String?> _getVercelApiKey() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? apiKey = prefs.getString(_vercelApiKeyPrefKey);
 
-  Future<void> exportProject() async {
-    if (!_isStoragePermissionGranted) {
-      await _checkAndRequestStoragePermission();
-      if (!_isStoragePermissionGranted) return;
+    if (apiKey == null || apiKey.isEmpty) {
+      await _showApiKeyInputDialog();
+      apiKey = prefs.getString(_vercelApiKeyPrefKey);
     }
+    return apiKey;
+  }
+
+  Future<void> _showDeploymentSuccessDialog(String deploymentUrl) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: secondaryColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: accentColor.withOpacity(0.5), width: 1),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.check_circle_outline, color: accentColor, size: 24),
+              SizedBox(width: 10),
+              Text(
+                'Successful!',
+                style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text(
+                  'Your website has been successfully deployed to Vercel:',
+                  style: TextStyle(color: textColor.withOpacity(0.9)),
+                ),
+                SizedBox(height: 10),
+                GestureDetector(
+                  onTap: () async {
+                    final url = Uri.parse('https://$deploymentUrl');
+                    if (await canLaunchUrl(url)) {
+                      await launchUrl(url, mode: LaunchMode.externalApplication);
+                    } else {
+                      _showSnackBar('Could not open the URL.', isError: true);
+                    }
+                  },
+                  child: Text(
+                    deploymentUrl,
+                    style: TextStyle(
+                      color: accentColorAlt,
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'Tap the URL to open it in your browser.',
+                  style: TextStyle(color: textColor.withOpacity(0.7), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text('OK',
+                  style: TextStyle(color: textColor.withOpacity(0.7))),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: accentColor,
+                foregroundColor: primaryColor,
+              ),
+              child: Text('Open in Browser'),
+              onPressed: () async {
+                final url = Uri.parse('https://$deploymentUrl');
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                } else {
+                  _showSnackBar('Could not open the URL.', isError: true);
+                }
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deployToVercel(String apiKey) async {
+    setState(() {
+      isUpdating = true;
+    });
+    _showSnackBar('Initiating Vercel deployment...');
 
     try {
-      Directory? dir;
-      if (Platform.isAndroid) {
-        dir = await getExternalStorageDirectory();
-      } else if (Platform.isIOS) {
-        dir = await getApplicationDocumentsDirectory();
-      }
-      if (dir == null) throw Exception("Unable to get storage directory");
+      const String vercelDeployApiUrl = 'https://api.vercel.com/v13/deployments';
 
-      final exportDir = Directory('${dir.path}/exports');
-      if (!(await exportDir.exists())) {
-        await exportDir.create(recursive: true);
+      final Map<String, dynamic> requestBody = {
+        'name': widget.project.name.replaceAll(' ', '-').toLowerCase(),
+        'files': [
+          {
+            'file': 'index.html',
+            'data': widget.project.htmlContent,
+          },
+        ],
+        'project': widget.project.name.replaceAll(' ', '-').toLowerCase(),
+        'target': 'production',
+        'projectSettings': {
+          'framework': null,
+          'buildCommand': null,
+          'devCommand': null,
+          'outputDirectory': null,
+          'rootDirectory': null,
+          'commandForIgnoringBuildStep': null,
+        },
+      };
+
+      final response = await http.post(
+        Uri.parse(vercelDeployApiUrl),
+        headers: {
+          'Authorization': 'Bearer $apiKey',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(requestBody),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        final String deploymentUrl = responseData['url'];
+        _showSnackBar('Deployment successful!');
+        _showDeploymentSuccessDialog(deploymentUrl);
+      } else {
+        final Map<String, dynamic> errorData = jsonDecode(response.body);
+        String errorMessage = errorData['error']['message'] ?? 'Unknown error';
+        if (response.statusCode == 403 || response.statusCode == 401) {
+          errorMessage = 'Invalid Vercel API Key or permissions. Please check your API key.';
+          await _showApiKeyInputDialog();
+        }
+        _showSnackBar('Deployment failed: ${response.statusCode} - $errorMessage', isError: true);
+        debugPrint('Vercel API Error: ${response.body}');
+      }
+    } catch (e) {
+      _showSnackBar('An error occurred during deployment: $e', isError: true);
+      debugPrint('Vercel Deployment Exception: $e');
+    } finally {
+      setState(() {
+        isUpdating = false;
+      });
+    }
+  }
+
+  Future<void> onRocketButtonPressed() async {
+    final String? apiKey = await _getVercelApiKey();
+    if (apiKey != null && apiKey.isNotEmpty) {
+      _deployToVercel(apiKey);
+    } else {
+      _showSnackBar('Vercel API key is required for deployment.', isError: true);
+    }
+  }
+
+  Future<void> exportProject() async {
+    try {
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Project As',
+        fileName: '${widget.project.name}.html',
+        type: FileType.custom,
+        allowedExtensions: ['html'],
+      );
+
+      if (result == null) {
+        _showSnackBar('Export cancelled.');
+        return;
       }
 
-      final file = File('${exportDir.path}/${widget.project.name}.html');
+      final file = File(result);
       await file.writeAsString(widget.project.htmlContent);
 
       if (!mounted) return;
-
       _showSnackBar('Exported to ${file.path}');
-      _showInterstitialAd();
 
       final shouldDownload = await showDialog<bool>(
         context: context,
@@ -290,39 +399,8 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
       }
     } catch (e) {
       debugPrint('Export error: $e');
-      _showSnackBar('Failed to export file: $e');
+      _showSnackBar('Failed to export file.');
     }
-  }
-
-  void _showInterstitialAd() {
-    if (_interstitialAd != null) {
-      _interstitialAd!.show();
-    } else {
-      print("Interstitial ad is not ready yet.");
-    }
-  }
-
-  void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.info_outline, color: accentColor, size: 18),
-            const SizedBox(width: 8),
-            Flexible(child: Text(message, overflow: TextOverflow.ellipsis)),
-          ],
-        ),
-        backgroundColor: secondaryColor.withOpacity(0.95),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: accentColor.withOpacity(0.3), width: 1),
-        ),
-        margin: const EdgeInsets.all(12),
-        duration: const Duration(seconds: 4),
-      ),
-    );
   }
 
   Widget _buildExportDialog() {
@@ -342,7 +420,7 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
               color: accentColor.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.code_rounded, color: accentColor),
+            child: Icon(Icons.code_rounded, color: accentColor),
           ),
           const Text(
             'Edit in HTML Editor PRO?',
@@ -357,8 +435,7 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          style: TextButton.styleFrom(
-              foregroundColor: textColor.withOpacity(0.7)),
+          style: TextButton.styleFrom(foregroundColor: textColor.withOpacity(0.7)),
           child: const Text('Cancel'),
         ),
         ElevatedButton(
@@ -367,15 +444,14 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             backgroundColor: accentColor,
             foregroundColor: primaryColor,
             elevation: 0,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.download_rounded, size: 16),
-              SizedBox(width: 6),
-              Text('Download', style: TextStyle(fontWeight: FontWeight.bold)),
+            children: [
+              const Icon(Icons.download_rounded, size: 16),
+              const SizedBox(width: 6),
+              const Text('Download', style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
         ),
@@ -393,12 +469,11 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
         widget.project.htmlContent = updatedHtml;
         instructionController.clear();
       });
-      webViewController?.loadData(
+      webViewController.loadData(
         data: updatedHtml,
         mimeType: 'text/html',
         encoding: 'utf-8',
       );
-      _showInterstitialAd();
     }
     setState(() => isUpdating = false);
   }
@@ -410,7 +485,7 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
       appBar: AppBar(
         backgroundColor: secondaryColor,
         elevation: 0,
-        title: Row(
+        title: Row( // <<<--- Removed Expanded here
           mainAxisSize: MainAxisSize.min,
           children: [
             Shimmer.fromColors(
@@ -423,19 +498,18 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             Flexible(
               child: Text(
                 widget.project.name,
-                style: const TextStyle(
-                    color: textColor, fontWeight: FontWeight.w500),
+                style: const TextStyle(color: textColor, fontWeight: FontWeight.w500),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
         ),
-        iconTheme: const IconThemeData(color: accentColor),
+        iconTheme: IconThemeData(color: accentColor),
         actions: [
           IconButton(
-            onPressed: exportProject,
+            onPressed: onRocketButtonPressed,
             icon: const Icon(Icons.rocket_launch_rounded),
-            tooltip: 'Export project',
+            tooltip: 'Deploy to Vercel',
           ),
         ],
       ),
@@ -492,7 +566,6 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
               setState(() {
                 consoleLogs.add(consoleMessage.message);
               });
-              debugPrint('JS: ${consoleMessage.message}');
             },
           ),
         ),
@@ -541,16 +614,15 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             ),
             const SizedBox(height: 16),
             Text("No console logs yet",
-                style: TextStyle(
-                    color: textColor.withOpacity(0.7), fontSize: 14)),
+                style:
+                TextStyle(color: textColor.withOpacity(0.7), fontSize: 14)),
             const SizedBox(height: 8),
             Shimmer.fromColors(
               baseColor: textColor.withOpacity(0.3),
               highlightColor: accentColor.withOpacity(0.5),
               child: Text("Console output will appear here",
                   style: TextStyle(
-                      color: textColor.withOpacity(0.5),
-                      fontSize: 12)),
+                      color: textColor.withOpacity(0.5), fontSize: 12)),
             ),
           ],
         ),
@@ -565,15 +637,15 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             decoration: BoxDecoration(
               color: primaryColor,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                  color: accentColor.withOpacity(0.2), width: 1),
+              border:
+              Border.all(color: accentColor.withOpacity(0.2), width: 1),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.data_array_rounded,
                     size: 16, color: accentColor.withOpacity(0.7)),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Expanded(
                   child: Text(consoleLogs[index],
                       style: const TextStyle(
@@ -598,16 +670,12 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: accentColor.withOpacity(0.3), width: 1),
         boxShadow: [
-          BoxShadow(
-              color: accentColor.withOpacity(0.1),
-              blurRadius: 10,
-              spreadRadius: 0),
+          BoxShadow(color: accentColor.withOpacity(0.1), blurRadius: 10, spreadRadius: 0),
         ],
       ),
       child: Row(
         children: [
-          Icon(Icons.code_rounded,
-              color: accentColor.withOpacity(0.7), size: 18),
+          Icon(Icons.code_rounded, color: accentColor.withOpacity(0.7), size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -628,23 +696,19 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             height: 32,
             child: CircularProgressIndicator(
                 strokeWidth: 2,
-                valueColor:
-                AlwaysStoppedAnimation<Color>(accentColor)),
+                valueColor: AlwaysStoppedAnimation<Color>(accentColor)),
           )
               : Material(
             color: accentColor,
             borderRadius: BorderRadius.circular(8),
             child: InkWell(
-              onTap: () {
-                updateProjectWithInstruction();
-              },
+              onTap: updateProjectWithInstruction,
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 padding: const EdgeInsets.all(8),
                 child: Transform.rotate(
                   angle: -math.pi / 4,
-                  child: const Icon(Icons.send_rounded,
-                      color: primaryColor, size: 18),
+                  child: const Icon(Icons.send_rounded, color: primaryColor, size: 18),
                 ),
               ),
             ),
@@ -658,8 +722,7 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
     return Container(
       decoration: BoxDecoration(
         color: secondaryColor,
-        border: Border(
-            top: BorderSide(color: accentColor.withOpacity(0.1), width: 1)),
+        border: Border(top: BorderSide(color: accentColor.withOpacity(0.1), width: 1)),
       ),
       child: BottomNavigationBar(
         backgroundColor: Colors.transparent,
@@ -673,11 +736,7 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             icon: const Icon(Icons.code_rounded),
             activeIcon: ShaderMask(
               shaderCallback: (Rect bounds) {
-                return LinearGradient(
-                    colors: [accentColor, accentColorAlt],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight)
-                    .createShader(bounds);
+                return LinearGradient(colors: [accentColor, accentColorAlt], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(bounds);
               },
               child: const Icon(Icons.code_rounded),
             ),
@@ -687,11 +746,7 @@ class _ProjectViewScreenState extends State<ProjectViewScreen>
             icon: const Icon(Icons.terminal_rounded),
             activeIcon: ShaderMask(
               shaderCallback: (Rect bounds) {
-                return LinearGradient(
-                    colors: [accentColor, accentColorAlt],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight)
-                    .createShader(bounds);
+                return LinearGradient(colors: [accentColor, accentColorAlt], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(bounds);
               },
               child: const Icon(Icons.terminal_rounded),
             ),

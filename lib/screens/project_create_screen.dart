@@ -62,9 +62,9 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen>
   // Platform check for ad unit id (replace with your actual ad units)
   String get rewardedAdUnitId {
     if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/5224354917'; // Test Ad Unit - Replace with your actual Android ID
+      return 'ca-app-pub-5500303894286506/2582418347';
     } else if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/1712485152'; // Test Ad Unit - Replace with your actual iOS ID
+      return 'ca-app-pub-5500303894286506/2582418347';
     } else {
       return ''; // Return empty string for other platforms
     }
@@ -72,9 +72,9 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen>
 
   String get bannerAdUnitId {
     if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/6300978111'; // Test Ad Unit - Replace with your actual Android ID
+      return 'ca-app-pub-5500303894286506/7976562867';
     } else if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/2934735716'; // Test Ad Unit - Replace with your actual iOS ID
+      return 'ca-app-pub-5500303894286506/7976562867';
     } else {
       return ''; // Return empty string for other platforms
     }
@@ -82,9 +82,9 @@ class _ProjectCreateScreenState extends State<ProjectCreateScreen>
 
   String get interstitialAdUnitId {
     if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/1033173712'; // Test Ad Unit - Replace with your actual Android ID
+      return 'ca-app-pub-5500303894286506/3209104301';
     } else if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/4411468910'; // Test Ad Unit - Replace with your actual iOS ID
+      return 'ca-app-pub-5500303894286506/3209104301';
     } else {
       return ''; // Return empty string for other platforms
     }
